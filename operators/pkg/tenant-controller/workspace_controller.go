@@ -136,7 +136,11 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		ws.Status.Subscriptions = make(map[string]crownlabsv1alpha2.SubscriptionStatus, 1)
 	}
 	// handling keycloak resources
-	if err = r.KcA.createKcRoles(ctx, genWsKcRolesData(ws.Name, ws.Spec.PrettyName)); err != nil {
+	if r.KcA == nil {
+		// KcA could be nil for local testing skipping the keycloak subscription
+		klog.Warningf("Skipping creation/update of roles in keycloak for workspace", ws.Name)
+		ws.Status.Subscriptions["keycloak"] = crownlabsv1alpha2.SubscrFailed
+	} else if err = r.KcA.createKcRoles(ctx, genWsKcRolesData(ws.Name, ws.Spec.PrettyName)); err != nil {
 		klog.Errorf("Error when creating roles for workspace %s -> %s", ws.Name, err)
 		ws.Status.Subscriptions["keycloak"] = crownlabsv1alpha2.SubscrFailed
 		retrigErr = err

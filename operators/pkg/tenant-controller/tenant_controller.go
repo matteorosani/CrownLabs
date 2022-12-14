@@ -410,21 +410,23 @@ func (r *TenantReconciler) createOrUpdateClusterResources(ctx context.Context, t
 	}
 	klog.Infof("PVC for tenant %s %s", tn.Name, pvcOpRes)
 
-	pv := v1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: pvc.Spec.VolumeName}}
-	if err := r.Get(ctx, types.NamespacedName{Name: pv.Name}, &pv); err != nil {
-		klog.Errorf("Unable to get PV for tenant %s -> %s", tn.Name, err)
-		retErr = err
-	} else {
-		pvcSecret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: nsName}}
-		pvcSecOpRes, err := ctrl.CreateOrUpdate(ctx, r.Client, &pvcSecret, func() error {
-			r.updateTnPVCSecret(&pvcSecret, pv.Spec.CSI.VolumeAttributes["share"])
-			return ctrl.SetControllerReference(tn, &pvcSecret, r.Scheme)
-		})
-		if err != nil {
-			klog.Errorf("Unable to create or update PVC Secret for tenant %s -> %s", tn.Name, err)
+	if pvc.Status.Phase == v1.ClaimBound {
+		pv := v1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: pvc.Spec.VolumeName}}
+		if err := r.Get(ctx, types.NamespacedName{Name: pv.Name}, &pv); err != nil {
+			klog.Errorf("Unable to get PV for tenant %s -> %s", tn.Name, err)
 			retErr = err
+		} else {
+			pvcSecret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: nsName}}
+			pvcSecOpRes, err := ctrl.CreateOrUpdate(ctx, r.Client, &pvcSecret, func() error {
+				r.updateTnPVCSecret(&pvcSecret, pv.Spec.CSI.VolumeAttributes["share"])
+				return ctrl.SetControllerReference(tn, &pvcSecret, r.Scheme)
+			})
+			if err != nil {
+				klog.Errorf("Unable to create or update PVC Secret for tenant %s -> %s", tn.Name, err)
+				retErr = err
+			}
+			klog.Infof("PVC Secret for tenant %s %s", tn.Name, pvcSecOpRes)
 		}
-		klog.Infof("PVC Secret for tenant %s %s", tn.Name, pvcSecOpRes)
 	}
 
 	return true, retErr
