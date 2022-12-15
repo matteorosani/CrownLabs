@@ -43,52 +43,54 @@ func (r *InstanceReconciler) EnforceNFSMount(ctx context.Context) error {
 	tenant := clctx.TenantFrom(ctx)
 	if tenant == nil {
 		retErr = errors.New("unable to retrieve tenant from the context")
-		klog.Error("%s", retErr)
+		klog.Errorf("%s", retErr)
 		return retErr
 	}
 
-	klog.Error("Tenant Namespace %s ", tenant.Namespace)
+	if tenant.Status.PersonalNamespace.Created {
+		klog.Errorf("Tenant Namespace %s", tenant.Status.PersonalNamespace.Name)
 
-	// Get the secret and the NFS path
-	secret = v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: tenant.Namespace}}
-	klog.Error("Secret %s %s ", secret.Name, secret.Namespace)
-	if retErr = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, &secret); retErr != nil {
-		klog.Error("Unable to get secret for tenant ", tenant.Name, " in namespace ", tenant.Namespace, " Error: ", retErr)
-		return retErr
-	} else {
-		var share []byte
-		var ok bool
-		if share, ok = secret.Data["share"]; !ok {
-			retErr = errors.New("unable to retrieve user path")
-			klog.Error("Unable to get secret for tenant ", tenant.Name, retErr)
+		// Get the secret and the NFS path
+		secret = v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: tenant.Status.PersonalNamespace.Name}}
+		klog.Errorf("Secret %s %s ", secret.Name, secret.Namespace)
+		if retErr = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, &secret); retErr != nil {
+			klog.Errorf("Unable to get secret for tenant %s in namespace %s. Error %s", tenant.Name, tenant.Status.PersonalNamespace.Name, retErr)
+			return retErr
+		} else {
+			var share []byte
+			var ok bool
+			if share, ok = secret.Data["share"]; !ok {
+				retErr = errors.New("unable to retrieve user path")
+				klog.Errorf("Unable to get secret for tenant ", tenant.Name, retErr)
+				return retErr
+			}
+			// Store the user path obtained through the secret
+			shareString = string(share)
+		}
+		// Get the user credentials
+		username, password, retErr := r.GetWebDavCredentials(ctx)
+		if retErr != nil {
+			klog.Errorf("Unable to get secret for tenant ", tenant.Name, " ", retErr)
 			return retErr
 		}
-		// Store the user path obtained through the secret
-		shareString = string(share)
+
+		// Retrieve the public keys
+		publicKeys, err := r.GetPublicKeys(ctx)
+		if err != nil {
+			log.Error(err, "unable to get public keys")
+			return err
+		}
+		log.V(utils.LogDebugLevel).Info("public keys correctly retrieved")
+
+		// Add the mounting path for the user in the container data
+		// See the CloudInitUserDataContainer function in /forge/cloudinit.go
+		_, retErr = forge.CloudInitUserDataContainer(shareString, username, password, publicKeys)
+		if retErr != nil {
+			log.Error(err, "unable to marshal secret content")
+			return retErr
+		}
 	}
 
-	// Get the user credentials
-	username, password, retErr := r.GetWebDavCredentials(ctx)
-	if retErr != nil {
-		klog.Error("Unable to get secret for tenant ", tenant.Name, " ", retErr)
-		return retErr
-	}
-
-	// Retrieve the public keys
-	publicKeys, err := r.GetPublicKeys(ctx)
-	if err != nil {
-		log.Error(err, "unable to get public keys")
-		return err
-	}
-	log.V(utils.LogDebugLevel).Info("public keys correctly retrieved")
-
-	// Add the mounting path for the user in the container data
-	// See the CloudInitUserDataContainer function in /forge/cloudinit.go
-	_, retErr = forge.CloudInitUserDataContainer(shareString, username, password, publicKeys)
-	if retErr != nil {
-		log.Error(err, "unable to marshal secret content")
-		return retErr
-	}
 	return nil
 }
 

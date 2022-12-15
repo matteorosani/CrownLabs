@@ -56,7 +56,7 @@ const (
 	// PVC size
 	UserPvcSize = 1 * 1024 * 1024 * 1024 // 1 Gi
 	// Name of the storage class to use
-	StorageClassName = "nfs-rook"
+	StorageClassName = "rook-nfs"
 )
 
 // TenantReconciler reconciles a Tenant object.
