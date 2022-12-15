@@ -46,11 +46,11 @@ func (r *InstanceReconciler) EnforceNFSMount(ctx context.Context) error {
 	}
 
 	if tenant.Status.PersonalNamespace.Created {
-		klog.Errorf("Tenant Namespace %s", tenant.Status.PersonalNamespace.Name)
+		klog.Infof("Tenant Namespace %s", tenant.Status.PersonalNamespace.Name)
 
 		// Get the secret and the NFS path
 		secret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: tenant.Status.PersonalNamespace.Name}}
-		klog.Errorf("Secret %s %s", secret.Name, secret.Namespace)
+		klog.Infof("Secret %s %s", secret.Name, secret.Namespace)
 		if retErr = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, &secret); retErr != nil {
 			klog.Errorf("Unable to get secret for tenant %s in namespace %s. Error %s", tenant.Name, tenant.Status.PersonalNamespace.Name, retErr)
 			return retErr
