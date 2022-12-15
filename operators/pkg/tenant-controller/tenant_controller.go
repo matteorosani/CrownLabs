@@ -55,6 +55,8 @@ const (
 	SecretShareKey = "share"
 	// PVC size
 	UserPvcSize = 1 * 1024 * 1024 * 1024 // 1 Gi
+	// Name of the storage class to use
+	StorageClassName = "nfs-rook"
 )
 
 // TenantReconciler reconciles a Tenant object.
@@ -487,7 +489,7 @@ func (r *TenantReconciler) updateTnNetPolAllow(np *netv1.NetworkPolicy) {
 }
 
 func (r *TenantReconciler) updateTnPersistentVolumeClaim(pvc *v1.PersistentVolumeClaim) {
-	scName := "rook-nfs"
+	scName := StorageClassName
 	pvc.Labels = r.updateTnResourceCommonLabels(pvc.Labels)
 
 	pvc.Spec.AccessModes = []v1.PersistentVolumeAccessMode{v1.ReadWriteMany}
