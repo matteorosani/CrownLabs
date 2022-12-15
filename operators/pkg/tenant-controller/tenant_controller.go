@@ -428,7 +428,8 @@ func (r *TenantReconciler) createOrUpdateClusterResources(ctx context.Context, t
 		} else {
 			pvcSecret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: PvcSecretName, Namespace: nsName}}
 			pvcSecOpRes, err := ctrl.CreateOrUpdate(ctx, r.Client, &pvcSecret, func() error {
-				r.updateTnPVCSecret(&pvcSecret, pv.Spec.CSI.VolumeAttributes["share"])
+				share := fmt.Sprintf("%s.rook-ceph.svc.cluster.local:%s", pv.Spec.CSI.VolumeAttributes["server"], pv.Spec.CSI.VolumeAttributes["share"])
+				r.updateTnPVCSecret(&pvcSecret, share)
 				return ctrl.SetControllerReference(tn, &pvcSecret, r.Scheme)
 			})
 			if err != nil {
