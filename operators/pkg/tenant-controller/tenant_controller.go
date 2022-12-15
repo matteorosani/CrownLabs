@@ -481,7 +481,7 @@ func (r *TenantReconciler) updateTnPersistentVolumeClaim(pvc *v1.PersistentVolum
 	pvc.Labels = r.updateTnResourceCommonLabels(pvc.Labels)
 
 	pvc.Spec.AccessModes = []v1.PersistentVolumeAccessMode{v1.ReadWriteMany}
-	pvc.Spec.Resources.Requests = v1.ResourceList{v1.ResourceStorage: *resource.NewQuantity(1, resource.Format("Gi"))}
+	pvc.Spec.Resources.Requests = v1.ResourceList{v1.ResourceStorage: *resource.NewQuantity(1*1024*1024*1024, resource.BinarySI)}
 	pvc.Spec.StorageClassName = &scName
 }
 
