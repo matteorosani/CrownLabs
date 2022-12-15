@@ -98,3 +98,41 @@ func CloudInitUserData(nextcloudBaseURL, webdavUsername, webdavPassword string, 
 	output = append([]byte("#cloud-config\n"), output...)
 	return output, nil
 }
+
+// CloudInitUserDataContainer forges the yaml manifest representing the cloud-init userdata configuration for a container
+func CloudInitUserDataContainer(nfsmountpath, webdavUsername, webdavPassword string, publicKeys []string) ([]byte, error) {
+	config := userdata{
+		Users: []user{{
+			Name:       "crownlabs",
+			LockPasswd: false,
+			// The hash of the password ("crownlabs").
+			// You can generate this hash via: "mkpasswd --method=SHA-512 --rounds=4096".
+			Passwd:            "$6$rounds=4096$tBS1sNBpnw6feehB$lS9b7VKH6WMAFOB0SrHCgjD2BKs9CegDe51EiMRWbxQeCVnoGL4u0jNaRsYhvVoBFaRlXZkNsxfFhXvCBaNeQ.",
+			Sudo:              "ALL=(ALL) NOPASSWD:ALL",
+			SSHAuthorizedKeys: publicKeys,
+			Shell:             "/bin/bash",
+		}},
+		Network: network{
+			Version: 2,
+			ID0:     interf{DHCP4: true},
+		},
+		Mounts: [][]string{
+			{
+				nfsmountpath,
+				"/media/nfs-share",
+				"cephfs",
+				"_netdev,auto,user,rw,uid=1000,gid=1000",
+				"0",
+				"0",
+			}},
+		SSHAuthorizedKeys: publicKeys,
+	}
+
+	output, err := yaml.Marshal(config)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	output = append([]byte("#cloud-config\n"), output...)
+	return output, nil
+}

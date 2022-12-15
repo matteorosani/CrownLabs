@@ -16,17 +16,82 @@ package instctrl
 
 import (
 	"context"
+	"errors"
 
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/netgroup-polito/CrownLabs/operators/api/v1alpha2"
+	crownlabsv1alpha2 "github.com/netgroup-polito/CrownLabs/operators/api/v1alpha2"
 	clctx "github.com/netgroup-polito/CrownLabs/operators/pkg/context"
 	"github.com/netgroup-polito/CrownLabs/operators/pkg/forge"
 	"github.com/netgroup-polito/CrownLabs/operators/pkg/utils"
 )
+
+// Enforce the setting for the NFS mounting path on the container
+// The function is called in function EnforceContainerEnvironment
+func (r *InstanceReconciler) EnforceNFSMount(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx)
+	var shareString string
+	var tn crownlabsv1alpha2.Tenant
+	var secret v1.Secret
+	var retErr error
+
+	// Get the Namespcae for the given context
+	instance := clctx.InstanceFrom(ctx)
+	namespacedName := forge.NamespacedName(instance)
+
+	// Retrieve the correct Tenant giving the Namespace
+	if retErr = r.Get(ctx, namespacedName, &tn); retErr != nil {
+		klog.Errorf("Error when getting tenant %s before starting enforcement")
+		return retErr
+	}
+
+	// Get the secret and the NFS path
+	secret = v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: tn.GetNamespace()}}
+	if retErr = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, &secret); retErr != nil {
+		klog.Error("Unable to get secret for tenant %s -> %s", tn.Name, retErr)
+		return retErr
+	} else {
+		var share []byte
+		var ok bool
+		if share, ok = secret.Data["share"]; !ok {
+			retErr = errors.New("unable to retrieve user path")
+			klog.Error("Unable to get secret for tenant %s -> %s", tn.Name, retErr)
+			return retErr
+		}
+		// Store the user path obtained through the secret
+		shareString = string(share)
+	}
+
+	// Get the user credentials
+	username, password, retErr := r.GetWebDavCredentials(ctx)
+	if retErr != nil {
+		klog.Error("Unable to get secret for tenant %s -> %s", tn.Name, retErr)
+		return retErr
+	}
+
+	// Retrieve the public keys
+	publicKeys, err := r.GetPublicKeys(ctx)
+	if err != nil {
+		log.Error(err, "unable to get public keys")
+		return err
+	}
+	log.V(utils.LogDebugLevel).Info("public keys correctly retrieved")
+
+	// Add the mounting path for the user in the container data
+	// See the CloudInitUserDataContainer function in /forge/cloudinit.go
+	_, retErr = forge.CloudInitUserDataContainer(shareString, username, password, publicKeys)
+	if retErr != nil {
+		log.Error(err, "unable to marshal secret content")
+		return retErr
+	}
+	return nil
+}
 
 // EnforceContainerEnvironment implements the logic to create all the different
 // Kubernetes resources required to start a containerized CrownLabs environment.
@@ -37,6 +102,12 @@ func (r *InstanceReconciler) EnforceContainerEnvironment(ctx context.Context) er
 	// Enforce the service and the ingress to expose the environment.
 	if err := r.EnforceInstanceExposition(ctx); err != nil {
 		log.Error(err, "failed to enforce the instance exposition objects")
+		return err
+	}
+
+	// Enforce the NFS user mount path
+	if err := r.EnforceNFSMount(ctx); err != nil {
+		log.Error(err, "failed to enforce the NFS mounting")
 		return err
 	}
 
