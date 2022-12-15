@@ -47,6 +47,14 @@ import (
 const (
 	// NoWorkspacesLabel -> label to be set (to true) when no workspaces are associated to the tenant.
 	NoWorkspacesLabel = "crownlabs.polito.it/no-workspaces"
+	// PVC name
+	UserPvcName = "user-pvc"
+	// PVC secret name
+	PvcSecretName = "user-pvc-secret"
+	// Share key in PVC secret
+	SecretShareKey = "share"
+	// PVC size
+	UserPvcSize = 1 * 1024 * 1024 * 1024 // 1 Gi
 )
 
 // TenantReconciler reconciles a Tenant object.
@@ -398,7 +406,7 @@ func (r *TenantReconciler) createOrUpdateClusterResources(ctx context.Context, t
 	}
 	klog.Infof("Allow network policy for tenant %s %s", tn.Name, npAOpRes)
 	// Persistant volume claim NFS
-	pvc := v1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc", Namespace: nsName}}
+	pvc := v1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: UserPvcName, Namespace: nsName}}
 
 	pvcOpRes, err := ctrl.CreateOrUpdate(ctx, r.Client, &pvc, func() error {
 		r.updateTnPersistentVolumeClaim(&pvc)
@@ -416,7 +424,7 @@ func (r *TenantReconciler) createOrUpdateClusterResources(ctx context.Context, t
 			klog.Errorf("Unable to get PV for tenant %s -> %s", tn.Name, err)
 			retErr = err
 		} else {
-			pvcSecret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: nsName}}
+			pvcSecret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: PvcSecretName, Namespace: nsName}}
 			pvcSecOpRes, err := ctrl.CreateOrUpdate(ctx, r.Client, &pvcSecret, func() error {
 				r.updateTnPVCSecret(&pvcSecret, pv.Spec.CSI.VolumeAttributes["share"])
 				return ctrl.SetControllerReference(tn, &pvcSecret, r.Scheme)
@@ -483,7 +491,7 @@ func (r *TenantReconciler) updateTnPersistentVolumeClaim(pvc *v1.PersistentVolum
 	pvc.Labels = r.updateTnResourceCommonLabels(pvc.Labels)
 
 	pvc.Spec.AccessModes = []v1.PersistentVolumeAccessMode{v1.ReadWriteMany}
-	pvc.Spec.Resources.Requests = v1.ResourceList{v1.ResourceStorage: *resource.NewQuantity(1*1024*1024*1024, resource.BinarySI)}
+	pvc.Spec.Resources.Requests = v1.ResourceList{v1.ResourceStorage: *resource.NewQuantity(UserPvcSize, resource.BinarySI)}
 	pvc.Spec.StorageClassName = &scName
 }
 
@@ -619,7 +627,7 @@ func (r *TenantReconciler) updateTnPVCSecret(sec *v1.Secret, share string) {
 
 	sec.Type = v1.SecretTypeOpaque
 	sec.Data = make(map[string][]byte, 1)
-	sec.Data["share"] = []byte(share)
+	sec.Data[SecretShareKey] = []byte(share)
 }
 
 func updateTnLabels(tn *crownlabsv1alpha2.Tenant, tenantExistingWorkspaces []crownlabsv1alpha2.TenantWorkspaceEntry) error {
