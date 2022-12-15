@@ -35,8 +35,6 @@ import (
 // The function is called in function EnforceContainerEnvironment
 func (r *InstanceReconciler) EnforceNFSMount(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx)
-	var shareString string
-	var secret v1.Secret
 	var retErr error
 
 	// Retrieve the correct Tenant from the given context
@@ -51,8 +49,8 @@ func (r *InstanceReconciler) EnforceNFSMount(ctx context.Context) error {
 		klog.Errorf("Tenant Namespace %s", tenant.Status.PersonalNamespace.Name)
 
 		// Get the secret and the NFS path
-		secret = v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: tenant.Status.PersonalNamespace.Name}}
-		klog.Errorf("Secret %s %s ", secret.Name, secret.Namespace)
+		secret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: tenant.Status.PersonalNamespace.Name}}
+		klog.Errorf("Secret %s %s", secret.Name, secret.Namespace)
 		if retErr = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, &secret); retErr != nil {
 			klog.Errorf("Unable to get secret for tenant %s in namespace %s. Error %s", tenant.Name, tenant.Status.PersonalNamespace.Name, retErr)
 			return retErr
@@ -65,29 +63,23 @@ func (r *InstanceReconciler) EnforceNFSMount(ctx context.Context) error {
 				return retErr
 			}
 			// Store the user path obtained through the secret
-			shareString = string(share)
-		}
-		// Get the user credentials
-		username, password, retErr := r.GetWebDavCredentials(ctx)
-		if retErr != nil {
-			klog.Errorf("Unable to get secret for tenant ", tenant.Name, " ", retErr)
-			return retErr
-		}
+			shareString := string(share)
 
-		// Retrieve the public keys
-		publicKeys, err := r.GetPublicKeys(ctx)
-		if err != nil {
-			log.Error(err, "unable to get public keys")
-			return err
-		}
-		log.V(utils.LogDebugLevel).Info("public keys correctly retrieved")
+			// Retrieve the public keys
+			publicKeys, err := r.GetPublicKeys(ctx)
+			if err != nil {
+				log.Error(err, "unable to get public keys")
+				return err
+			}
+			log.V(utils.LogDebugLevel).Info("public keys correctly retrieved")
 
-		// Add the mounting path for the user in the container data
-		// See the CloudInitUserDataContainer function in /forge/cloudinit.go
-		_, retErr = forge.CloudInitUserDataContainer(shareString, username, password, publicKeys)
-		if retErr != nil {
-			log.Error(err, "unable to marshal secret content")
-			return retErr
+			// Add the mounting path for the user in the container data
+			// See the CloudInitUserDataContainer function in /forge/cloudinit.go
+			_, err = forge.CloudInitUserDataContainer(shareString, publicKeys)
+			if retErr != nil {
+				log.Error(err, "unable to marshal secret content")
+				return err
+			}
 		}
 	}
 

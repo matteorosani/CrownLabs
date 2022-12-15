@@ -110,7 +110,7 @@ func CloudInitUserData(nextcloudBaseURL /*nfsmountpath,*/, webdavUsername, webda
 }
 
 // CloudInitUserDataContainer forges the yaml manifest representing the cloud-init userdata configuration for a container
-func CloudInitUserDataContainer(nfsmountpath, webdavUsername, webdavPassword string, publicKeys []string) ([]byte, error) {
+func CloudInitUserDataContainer(nfsmountpath string, publicKeys []string) ([]byte, error) {
 	config := userdata{
 		Users: []user{{
 			Name:       "crownlabs",
