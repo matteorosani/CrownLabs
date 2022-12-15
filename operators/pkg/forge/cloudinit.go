@@ -58,7 +58,7 @@ type writefile struct {
 }
 
 // CloudInitUserData forges the yaml manifest representing the cloud-init userdata configuration.
-func CloudInitUserData(nextcloudBaseURL, webdavUsername, webdavPassword string, publicKeys []string) ([]byte, error) {
+func CloudInitUserData(nextcloudBaseURL /*nfsmountpath,*/, webdavUsername, webdavPassword string, publicKeys []string) ([]byte, error) {
 	config := userdata{
 		Users: []user{{
 			Name:       "crownlabs",
@@ -82,6 +82,16 @@ func CloudInitUserData(nextcloudBaseURL, webdavUsername, webdavPassword string, 
 			"0",
 			"0",
 		}},
+		/*
+			{
+				nfsmountpath,
+				"/media/nfs-share",
+				"nfs",
+				"rw,tcp,hard,intr,rsize=8192,wsize=8192,timeo=14",
+				"0",
+				"0",
+			}
+		*/
 		WriteFiles: []writefile{{
 			Content:     fmt.Sprintf("/media/MyDrive %s %s", webdavUsername, webdavPassword),
 			Path:        "/etc/davfs2/secrets",
@@ -120,8 +130,8 @@ func CloudInitUserDataContainer(nfsmountpath, webdavUsername, webdavPassword str
 			{
 				nfsmountpath,
 				"/media/nfs-share",
-				"cephfs",
-				"_netdev,auto,user,rw,uid=1000,gid=1000",
+				"nfs",
+				"rw,tcp,hard,intr,rsize=8192,wsize=8192,timeo=14",
 				"0",
 				"0",
 			}},
