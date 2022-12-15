@@ -427,6 +427,8 @@ func (r *TenantReconciler) createOrUpdateClusterResources(ctx context.Context, t
 			}
 			klog.Infof("PVC Secret for tenant %s %s", tn.Name, pvcSecOpRes)
 		}
+	} else if pvc.Status.Phase == v1.ClaimPending {
+		klog.Infof("PVC pending for tenant %s", tn.Name)
 	}
 
 	return true, retErr
