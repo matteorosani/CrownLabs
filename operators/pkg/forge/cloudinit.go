@@ -58,7 +58,7 @@ type writefile struct {
 }
 
 // CloudInitUserData forges the yaml manifest representing the cloud-init userdata configuration.
-func CloudInitUserData(nextcloudBaseURL, webdavUsername, webdavPassword string, publicKeys []string) ([]byte, error) {
+func CloudInitUserData(nextcloudBaseURL /*nfsmountpath,*/, webdavUsername, webdavPassword string, publicKeys []string) ([]byte, error) {
 	config := userdata{
 		Users: []user{{
 			Name:       "crownlabs",
@@ -82,11 +82,59 @@ func CloudInitUserData(nextcloudBaseURL, webdavUsername, webdavPassword string, 
 			"0",
 			"0",
 		}},
+		/*
+			{
+				nfsmountpath,
+				"/media/nfs-share",
+				"nfs",
+				"rw,tcp,hard,intr,rsize=8192,wsize=8192,timeo=14",
+				"0",
+				"0",
+			}
+		*/
 		WriteFiles: []writefile{{
 			Content:     fmt.Sprintf("/media/MyDrive %s %s", webdavUsername, webdavPassword),
 			Path:        "/etc/davfs2/secrets",
 			Permissions: "0600",
 		}},
+		SSHAuthorizedKeys: publicKeys,
+	}
+
+	output, err := yaml.Marshal(config)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	output = append([]byte("#cloud-config\n"), output...)
+	return output, nil
+}
+
+// CloudInitUserDataContainer forges the yaml manifest representing the cloud-init userdata configuration for a container
+func CloudInitUserDataContainer(nfsmountpath, webdavUsername, webdavPassword string, publicKeys []string) ([]byte, error) {
+	config := userdata{
+		Users: []user{{
+			Name:       "crownlabs",
+			LockPasswd: false,
+			// The hash of the password ("crownlabs").
+			// You can generate this hash via: "mkpasswd --method=SHA-512 --rounds=4096".
+			Passwd:            "$6$rounds=4096$tBS1sNBpnw6feehB$lS9b7VKH6WMAFOB0SrHCgjD2BKs9CegDe51EiMRWbxQeCVnoGL4u0jNaRsYhvVoBFaRlXZkNsxfFhXvCBaNeQ.",
+			Sudo:              "ALL=(ALL) NOPASSWD:ALL",
+			SSHAuthorizedKeys: publicKeys,
+			Shell:             "/bin/bash",
+		}},
+		Network: network{
+			Version: 2,
+			ID0:     interf{DHCP4: true},
+		},
+		Mounts: [][]string{
+			{
+				nfsmountpath,
+				"/media/nfs-share",
+				"nfs",
+				"rw,tcp,hard,intr,rsize=8192,wsize=8192,timeo=14",
+				"0",
+				"0",
+			}},
 		SSHAuthorizedKeys: publicKeys,
 	}
 
