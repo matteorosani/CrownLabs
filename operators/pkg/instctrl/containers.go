@@ -50,7 +50,7 @@ func (r *InstanceReconciler) EnforceNFSMount(ctx context.Context) error {
 	// Get the secret and the NFS path
 	secret = v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: tenant.GetNamespace()}}
 	if retErr = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, &secret); retErr != nil {
-		klog.Error("Unable to get secret for tenant %s -> %s", tenant.Name, retErr)
+		klog.Error("Unable to get secret for tenant %s in namespace %s -> %s", tenant.Name, tenant.GetNamespace(), retErr)
 		return retErr
 	} else {
 		var share []byte
