@@ -290,10 +290,12 @@ func (r *TenantReconciler) handleDeletion(ctx context.Context, tnName string) er
 		}
 	}
 	// delete nextcloud user
-	if err := r.NcA.DeleteUser(genNcUsername(tnName)); err != nil {
-		klog.Errorf("Error when deleting nextcloud user for tenant %s -> %s", tnName, err)
-		tnOpinternalErrors.WithLabelValues("tenant", "nextcloud").Inc()
-		retErr = err
+	if r.NcA != nil {
+		if err := r.NcA.DeleteUser(genNcUsername(tnName)); err != nil {
+			klog.Errorf("Error when deleting nextcloud user for tenant %s -> %s", tnName, err)
+			tnOpinternalErrors.WithLabelValues("tenant", "nextcloud").Inc()
+			retErr = err
+		}
 	}
 	return retErr
 }
