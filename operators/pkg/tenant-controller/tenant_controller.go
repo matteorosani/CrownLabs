@@ -25,6 +25,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -46,6 +47,16 @@ import (
 const (
 	// NoWorkspacesLabel -> label to be set (to true) when no workspaces are associated to the tenant.
 	NoWorkspacesLabel = "crownlabs.polito.it/no-workspaces"
+	// PVC name
+	UserPvcName = "user-pvc"
+	// PVC secret name
+	PvcSecretName = "user-pvc-secret"
+	// Share key in PVC secret
+	SecretShareKey = "share"
+	// PVC size
+	UserPvcSize = 1 * 1024 * 1024 * 1024 // 1 Gi
+	// Name of the storage class to use
+	StorageClassName = "nfs-rook"
 )
 
 // TenantReconciler reconciles a Tenant object.
@@ -245,6 +256,7 @@ func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&crownlabsv1alpha2.Tenant{}, builder.WithPredicates(labelSelectorPredicate(r.TargetLabelKey, r.TargetLabelValue))).
 		// owns the secret related to the nextcloud credentials, to allow new password generation in case tenant has a problem with nextcloud
 		Owns(&v1.Secret{}).
+		Owns(&v1.PersistentVolumeClaim{}).
 		Owns(&v1.Namespace{}).
 		Owns(&v1.ResourceQuota{}).
 		Owns(&rbacv1.RoleBinding{}).
@@ -395,6 +407,41 @@ func (r *TenantReconciler) createOrUpdateClusterResources(ctx context.Context, t
 		retErr = err
 	}
 	klog.Infof("Allow network policy for tenant %s %s", tn.Name, npAOpRes)
+	// Persistant volume claim NFS
+	pvc := v1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: UserPvcName, Namespace: nsName}}
+
+	pvcOpRes, err := ctrl.CreateOrUpdate(ctx, r.Client, &pvc, func() error {
+		r.updateTnPersistentVolumeClaim(&pvc)
+		return ctrl.SetControllerReference(tn, &pvc, r.Scheme)
+	})
+	if err != nil {
+		klog.Errorf("Unable to create or update PVC for tenant %s -> %s", tn.Name, err)
+		retErr = err
+	}
+	klog.Infof("PVC for tenant %s %s", tn.Name, pvcOpRes)
+
+	if pvc.Status.Phase == v1.ClaimBound {
+		pv := v1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: pvc.Spec.VolumeName}}
+		if err := r.Get(ctx, types.NamespacedName{Name: pv.Name}, &pv); err != nil {
+			klog.Errorf("Unable to get PV for tenant %s -> %s", tn.Name, err)
+			retErr = err
+		} else {
+			pvcSecret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: PvcSecretName, Namespace: nsName}}
+			pvcSecOpRes, err := ctrl.CreateOrUpdate(ctx, r.Client, &pvcSecret, func() error {
+				share := fmt.Sprintf("%s.rook-ceph.svc.cluster.local:%s", pv.Spec.CSI.VolumeAttributes["server"], pv.Spec.CSI.VolumeAttributes["share"])
+				r.updateTnPVCSecret(&pvcSecret, share)
+				return ctrl.SetControllerReference(tn, &pvcSecret, r.Scheme)
+			})
+			if err != nil {
+				klog.Errorf("Unable to create or update PVC Secret for tenant %s -> %s", tn.Name, err)
+				retErr = err
+			}
+			klog.Infof("PVC Secret for tenant %s %s", tn.Name, pvcSecOpRes)
+		}
+	} else if pvc.Status.Phase == v1.ClaimPending {
+		klog.Infof("PVC pending for tenant %s", tn.Name)
+	}
+
 	return true, retErr
 }
 
@@ -440,6 +487,15 @@ func (r *TenantReconciler) updateTnNetPolAllow(np *netv1.NetworkPolicy) {
 	np.Spec.Ingress = []netv1.NetworkPolicyIngressRule{{From: []netv1.NetworkPolicyPeer{{NamespaceSelector: &metav1.LabelSelector{
 		MatchLabels: map[string]string{"crownlabs.polito.it/allow-instance-access": "true"},
 	}}}}}
+}
+
+func (r *TenantReconciler) updateTnPersistentVolumeClaim(pvc *v1.PersistentVolumeClaim) {
+	scName := StorageClassName
+	pvc.Labels = r.updateTnResourceCommonLabels(pvc.Labels)
+
+	pvc.Spec.AccessModes = []v1.PersistentVolumeAccessMode{v1.ReadWriteMany}
+	pvc.Spec.Resources.Requests = v1.ResourceList{v1.ResourceStorage: *resource.NewQuantity(UserPvcSize, resource.BinarySI)}
+	pvc.Spec.StorageClassName = &scName
 }
 
 func (r *TenantReconciler) handleKeycloakSubscription(ctx context.Context, tn *crownlabsv1alpha2.Tenant, tenantExistingWorkspaces []crownlabsv1alpha2.TenantWorkspaceEntry) error {
@@ -567,6 +623,14 @@ func (r *TenantReconciler) updateTnNcSecret(sec *v1.Secret, username, password s
 	sec.Data = make(map[string][]byte, 2)
 	sec.Data["username"] = []byte(username)
 	sec.Data["password"] = []byte(password)
+}
+
+func (r *TenantReconciler) updateTnPVCSecret(sec *v1.Secret, share string) {
+	sec.Labels = r.updateTnResourceCommonLabels(sec.Labels)
+
+	sec.Type = v1.SecretTypeOpaque
+	sec.Data = make(map[string][]byte, 1)
+	sec.Data[SecretShareKey] = []byte(share)
 }
 
 func updateTnLabels(tn *crownlabsv1alpha2.Tenant, tenantExistingWorkspaces []crownlabsv1alpha2.TenantWorkspaceEntry) error {
