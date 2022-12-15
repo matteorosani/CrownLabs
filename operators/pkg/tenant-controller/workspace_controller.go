@@ -191,10 +191,12 @@ func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *WorkspaceReconciler) handleDeletion(ctx context.Context, wsName, wsPrettyName string) error {
 	var retErr error
 	rolesToDelete := genWsKcRolesData(wsName, wsPrettyName)
-	if err := r.KcA.deleteKcRoles(ctx, rolesToDelete); err != nil {
-		klog.Errorf("Error when deleting roles of workspace %s -> %s", wsName, err)
-		tnOpinternalErrors.WithLabelValues("workspace", "self-update").Inc()
-		retErr = err
+	if r.KcA != nil {
+		if err := r.KcA.deleteKcRoles(ctx, rolesToDelete); err != nil {
+			klog.Errorf("Error when deleting roles of workspace %s -> %s", wsName, err)
+			tnOpinternalErrors.WithLabelValues("workspace", "self-update").Inc()
+			retErr = err
+		}
 	}
 
 	// unsubscribe tenants from workspace to delete
