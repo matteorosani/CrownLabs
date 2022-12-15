@@ -275,16 +275,18 @@ func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *TenantReconciler) handleDeletion(ctx context.Context, tnName string) error {
 	var retErr error
 	// delete keycloak user
-	if userID, _, err := r.KcA.getUserInfo(ctx, tnName); err != nil {
-		klog.Errorf("Error when checking if user %s existed for deletion -> %s", tnName, err)
-		tnOpinternalErrors.WithLabelValues("tenant", "keycloak").Inc()
-		retErr = err
-	} else if userID != nil {
-		// userID != nil means user exist in keycloak, so need to delete it
-		if err = r.KcA.Client.DeleteUser(ctx, r.KcA.GetAccessToken(), r.KcA.TargetRealm, *userID); err != nil {
-			klog.Errorf("Error when deleting user %s -> %s", tnName, err)
+	if r.KcA != nil {
+		if userID, _, err := r.KcA.getUserInfo(ctx, tnName); err != nil {
+			klog.Errorf("Error when checking if user %s existed for deletion -> %s", tnName, err)
 			tnOpinternalErrors.WithLabelValues("tenant", "keycloak").Inc()
 			retErr = err
+		} else if userID != nil {
+			// userID != nil means user exist in keycloak, so need to delete it
+			if err = r.KcA.Client.DeleteUser(ctx, r.KcA.GetAccessToken(), r.KcA.TargetRealm, *userID); err != nil {
+				klog.Errorf("Error when deleting user %s -> %s", tnName, err)
+				tnOpinternalErrors.WithLabelValues("tenant", "keycloak").Inc()
+				retErr = err
+			}
 		}
 	}
 	// delete nextcloud user
