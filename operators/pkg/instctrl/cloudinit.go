@@ -16,9 +16,12 @@ package instctrl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -45,41 +48,77 @@ const (
 func (r *InstanceReconciler) EnforceCloudInitSecret(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx)
 
+	var retErr error
+	var shareString string
+
 	// Retrieve the WebDav credentials.
-	user, password, err := r.GetWebDavCredentials(ctx)
-	if err != nil {
-		log.Error(err, "unable to get webdav credentials")
-		return err
+	user, password, retErr := r.GetWebDavCredentials(ctx)
+	if retErr != nil {
+		log.Error(retErr, "unable to get webdav credentials")
+		return retErr
 	}
 	log.V(utils.LogDebugLevel).Info("webdav credentials correctly retrieved")
 
 	// Retrieve the public keys
-	publicKeys, err := r.GetPublicKeys(ctx)
-	if err != nil {
-		log.Error(err, "unable to get public keys")
-		return err
+	publicKeys, retErr := r.GetPublicKeys(ctx)
+	if retErr != nil {
+		log.Error(retErr, "unable to get public keys")
+		return retErr
 	}
 	log.V(utils.LogDebugLevel).Info("public keys correctly retrieved")
 
-	userdata, err := forge.CloudInitUserData(r.ServiceUrls.NextcloudBaseURL, user, password, publicKeys)
-	if err != nil {
-		log.Error(err, "unable to marshal secret content")
-		return err
+	// Retrieve the correct Tenant from the given context
+	tenant := clctx.TenantFrom(ctx)
+	if tenant == nil {
+		retErr = errors.New("unable to retrieve tenant from the context")
+		klog.Errorf("%s", retErr)
+		return retErr
+	}
+
+	if tenant.Status.PersonalNamespace.Created {
+		klog.Infof("Tenant Namespace %s", tenant.Status.PersonalNamespace.Name)
+
+		// Get the secret and the NFS path
+		secret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: tenant.Status.PersonalNamespace.Name}}
+		klog.Infof("Secret %s %s", secret.Name, secret.Namespace)
+		if retErr = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, &secret); retErr != nil {
+			klog.Errorf("Unable to get secret for tenant %s in namespace %s. Error %s", tenant.Name, tenant.Status.PersonalNamespace.Name, retErr)
+			return retErr
+		} else {
+			var share []byte
+			var ok bool
+			if share, ok = secret.Data["share"]; !ok {
+				retErr = errors.New("unable to retrieve user path")
+				klog.Errorf("Unable to get secret for tenant ", tenant.Name, retErr)
+				return retErr
+			}
+			// Store the user path obtained through the secret
+			shareString = string(share)
+		}
+	} else {
+		retErr = errors.New("Secret not created")
+		return retErr
+	}
+
+	userdata, retErr := forge.CloudInitUserData(r.ServiceUrls.NextcloudBaseURL, shareString, user, password, publicKeys)
+	if retErr != nil {
+		log.Error(retErr, "unable to marshal secret content")
+		return retErr
 	}
 
 	// Enforce the cloud-init secret presence
 	instance := clctx.InstanceFrom(ctx)
 	secret := corev1.Secret{ObjectMeta: forge.ObjectMeta(instance)}
-	res, err := ctrl.CreateOrUpdate(ctx, r.Client, &secret, func() error {
+	res, retErr := ctrl.CreateOrUpdate(ctx, r.Client, &secret, func() error {
 		secret.SetLabels(forge.InstanceObjectLabels(secret.GetLabels(), instance))
 		secret.Data = map[string][]byte{UserDataKey: userdata}
 		secret.Type = corev1.SecretTypeOpaque
 		return ctrl.SetControllerReference(instance, &secret, r.Scheme)
 	})
 
-	if err != nil {
-		log.Error(err, "failed to enforce cloud-init secret", "secret", klog.KObj(&secret))
-		return err
+	if retErr != nil {
+		log.Error(retErr, "failed to enforce cloud-init secret", "secret", klog.KObj(&secret))
+		return retErr
 	}
 
 	log.V(utils.FromResult(res)).Info("cloud-init secret enforced", "secret", klog.KObj(&secret), "result", res)
