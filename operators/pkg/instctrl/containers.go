@@ -47,17 +47,20 @@ func (r *InstanceReconciler) EnforceNFSMount(ctx context.Context) error {
 		return retErr
 	}
 
+	klog.Error("Tenant Namespace %s ", tenant.Namespace)
+
 	// Get the secret and the NFS path
-	secret = v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: tenant.GetNamespace()}}
+	secret = v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: tenant.Namespace}}
+	klog.Error("Secret %s %s ", secret.Name, secret.Namespace)
 	if retErr = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, &secret); retErr != nil {
-		klog.Error("Unable to get secret for tenant %s in namespace %s -> %s", tenant.Name, tenant.GetNamespace(), retErr)
+		klog.Error("Unable to get secret for tenant ", tenant.Name, " in namespace ", tenant.Namespace, " Error: ", retErr)
 		return retErr
 	} else {
 		var share []byte
 		var ok bool
 		if share, ok = secret.Data["share"]; !ok {
 			retErr = errors.New("unable to retrieve user path")
-			klog.Error("Unable to get secret for tenant %s -> %s", tenant.Name, retErr)
+			klog.Error("Unable to get secret for tenant ", tenant.Name, retErr)
 			return retErr
 		}
 		// Store the user path obtained through the secret
@@ -67,7 +70,7 @@ func (r *InstanceReconciler) EnforceNFSMount(ctx context.Context) error {
 	// Get the user credentials
 	username, password, retErr := r.GetWebDavCredentials(ctx)
 	if retErr != nil {
-		klog.Error("Unable to get secret for tenant %s -> %s", tenant.Name, retErr)
+		klog.Error("Unable to get secret for tenant ", tenant.Name, " ", retErr)
 		return retErr
 	}
 
