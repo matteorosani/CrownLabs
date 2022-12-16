@@ -31,55 +31,47 @@ import (
 	"github.com/netgroup-polito/CrownLabs/operators/pkg/utils"
 )
 
-// Enforce the setting for the NFS mounting path on the container
-// The function is called in function EnforceContainerEnvironment
-func (r *InstanceReconciler) EnforceNFSMount(ctx context.Context) error {
-	log := ctrl.LoggerFrom(ctx)
-	var retErr error
+const (
+	UserPvcSecret          = "user-pvc-secret"
+	UserPvcSecretServerKey = "server"
+	UserPvcSecretPathKey   = "path"
+	NfsMountPath           = "/media/nfs-share"
+	NfsVolumeName          = "nfs-vol"
+)
 
+func (r *InstanceReconciler) GetNFSVolume(ctx context.Context, volume *v1.Volume, volumeMount *v1.VolumeMount) error {
 	// Retrieve the correct Tenant from the given context
 	tenant := clctx.TenantFrom(ctx)
 	if tenant == nil {
-		retErr = errors.New("unable to retrieve tenant from the context")
+		retErr := errors.New("unable to retrieve tenant from the context")
 		klog.Errorf("%s", retErr)
 		return retErr
 	}
 
 	if tenant.Status.PersonalNamespace.Created {
-		klog.Infof("Tenant Namespace %s", tenant.Status.PersonalNamespace.Name)
-
 		// Get the secret and the NFS path
-		secret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-pvc-secret", Namespace: tenant.Status.PersonalNamespace.Name}}
-		klog.Infof("Secret %s %s", secret.Name, secret.Namespace)
-		if retErr = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, &secret); retErr != nil {
+		secret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: UserPvcSecret, Namespace: tenant.Status.PersonalNamespace.Name}}
+		if retErr := r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, &secret); retErr != nil {
 			klog.Errorf("Unable to get secret for tenant %s in namespace %s. Error %s", tenant.Name, tenant.Status.PersonalNamespace.Name, retErr)
 			return retErr
 		} else {
-			var share []byte
+			var server []byte
+			var path []byte
 			var ok bool
-			if share, ok = secret.Data["share"]; !ok {
-				retErr = errors.New("unable to retrieve user path")
-				klog.Errorf("Unable to get secret for tenant ", tenant.Name, retErr)
+			if server, ok = secret.Data[UserPvcSecretServerKey]; !ok {
+				retErr = errors.New("unable to retrieve key for server")
+				klog.Errorf("Unable to get secret for tenant %s -> %s", tenant.Name, retErr)
 				return retErr
 			}
-			// Store the user path obtained through the secret
-			shareString := string(share)
 
-			// Retrieve the public keys
-			publicKeys, err := r.GetPublicKeys(ctx)
-			if err != nil {
-				log.Error(err, "unable to get public keys")
-				return err
+			if path, ok = secret.Data[UserPvcSecretPathKey]; !ok {
+				retErr = errors.New("unable to retrieve key for path")
+				klog.Errorf("Unable to get secret for tenant %s -> %s", tenant.Name, retErr)
+				return retErr
 			}
-			log.V(utils.LogDebugLevel).Info("public keys correctly retrieved")
-
-			// Add the mounting path for the user in the container data
-			// See the CloudInitUserDataContainer function in /forge/cloudinit.go
-			_, err = forge.CloudInitUserDataContainer(shareString, publicKeys)
-			if retErr != nil {
-				log.Error(err, "unable to marshal secret content")
-				return err
-			}
+			volumeMount.MountPath = NfsMountPath
+			volume.NFS.Server = string(server)
+			volume.NFS.Path = string(path)
 		}
 	}
 
@@ -95,12 +87,6 @@ func (r *InstanceReconciler) EnforceContainerEnvironment(ctx context.Context) er
 	// Enforce the service and the ingress to expose the environment.
 	if err := r.EnforceInstanceExposition(ctx); err != nil {
 		log.Error(err, "failed to enforce the instance exposition objects")
-		return err
-	}
-
-	// Enforce the NFS user mount path
-	if err := r.EnforceNFSMount(ctx); err != nil {
-		log.Error(err, "failed to enforce the NFS mounting")
 		return err
 	}
 
@@ -153,6 +139,22 @@ func (r *InstanceReconciler) enforceContainer(ctx context.Context) error {
 		// either rejected or cause the restart of the Pod, with consequent possible data loss.
 		if depl.CreationTimestamp.IsZero() {
 			depl.Spec = forge.DeploymentSpec(instance, environment, &r.ContainerEnvOpts)
+
+			if environment.Mode == v1alpha2.ModeStandard {
+				volume := v1.Volume{Name: NfsVolumeName}
+				volumeMount := v1.VolumeMount{Name: NfsVolumeName}
+
+				if err := r.GetNFSVolume(ctx, &volume, &volumeMount); err != nil {
+					return err
+				}
+
+				depl.Spec.Template.Spec.Volumes = append(depl.Spec.Template.Spec.Volumes, volume)
+				for _, c := range depl.Spec.Template.Spec.Containers {
+					if c.Name == environment.Name {
+						c.VolumeMounts = append(c.VolumeMounts, volumeMount)
+					}
+				}
+			}
 		}
 
 		depl.Spec.Replicas = forge.ReplicasCount(instance, environment, depl.CreationTimestamp.IsZero())
