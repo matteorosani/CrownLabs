@@ -58,7 +58,8 @@ const (
 	// PVC size
 	UserPvcSize = 1 * 1024 * 1024 * 1024 // 1 Gi
 	// Name of the storage class to use
-	StorageClassName = "rook-nfs"
+	StorageClassName  = "rook-nfs"
+	RookCephNamespace = "rook-ceph"
 )
 
 // TenantReconciler reconciles a Tenant object.
@@ -434,7 +435,12 @@ func (r *TenantReconciler) createOrUpdateClusterResources(ctx context.Context, t
 		} else {
 			pvcSecret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: PvcSecretName, Namespace: nsName}}
 			pvcSecOpRes, err := ctrl.CreateOrUpdate(ctx, r.Client, &pvcSecret, func() error {
-				r.updateTnPVCSecret(&pvcSecret, fmt.Sprintf("%s.rook-ceph.svc.cluster.local", pv.Spec.CSI.VolumeAttributes["server"]), pv.Spec.CSI.VolumeAttributes["share"])
+				nfsService := v1.Service{ObjectMeta: metav1.ObjectMeta{Name: pv.Spec.CSI.VolumeAttributes["server"], Namespace: RookCephNamespace}}
+				if err := r.Get(ctx, types.NamespacedName{Name: nfsService.Name, Namespace: nfsService.Namespace}, &nfsService); err != nil {
+					return err
+				}
+
+				r.updateTnPVCSecret(&pvcSecret, nfsService.Spec.ClusterIP, pv.Spec.CSI.VolumeAttributes["share"])
 				return ctrl.SetControllerReference(tn, &pvcSecret, r.Scheme)
 			})
 			if err != nil {
