@@ -69,9 +69,13 @@ func (r *InstanceReconciler) GetNFSVolume(ctx context.Context, volume *v1.Volume
 				klog.Errorf("Unable to get secret for tenant %s -> %s", tenant.Name, retErr)
 				return retErr
 			}
+			klog.Infof("Adding NFS volume %s:%s", string(server), string(path))
 			volumeMount.MountPath = NfsMountPath
-			volume.NFS.Server = string(server)
-			volume.NFS.Path = string(path)
+			volume.NFS = &v1.NFSVolumeSource{
+				ReadOnly: false,
+				Server:   string(server),
+				Path:     string(path),
+			}
 		}
 	}
 
@@ -149,9 +153,9 @@ func (r *InstanceReconciler) enforceContainer(ctx context.Context) error {
 				}
 
 				depl.Spec.Template.Spec.Volumes = append(depl.Spec.Template.Spec.Volumes, volume)
-				for _, c := range depl.Spec.Template.Spec.Containers {
-					if c.Name == environment.Name {
-						c.VolumeMounts = append(c.VolumeMounts, volumeMount)
+				for i := range depl.Spec.Template.Spec.Containers {
+					if depl.Spec.Template.Spec.Containers[i].Name == environment.Name {
+						depl.Spec.Template.Spec.Containers[i].VolumeMounts = append(depl.Spec.Template.Spec.Containers[i].VolumeMounts, volumeMount)
 					}
 				}
 			}
