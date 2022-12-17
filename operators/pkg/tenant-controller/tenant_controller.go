@@ -51,12 +51,15 @@ const (
 	UserPvcName = "user-pvc"
 	// PVC secret name
 	PvcSecretName = "user-pvc-secret"
-	// Share key in PVC secret
-	SecretShareKey = "share"
+	// Server key in PVC secret
+	SecretServerKey = "server"
+	// Path key in PVC secret
+	SecretPathKey = "path"
 	// PVC size
 	UserPvcSize = 1 * 1024 * 1024 * 1024 // 1 Gi
 	// Name of the storage class to use
-	StorageClassName = "rook-nfs"
+	StorageClassName  = "rook-nfs"
+	RookCephNamespace = "rook-ceph"
 )
 
 // TenantReconciler reconciles a Tenant object.
@@ -432,8 +435,12 @@ func (r *TenantReconciler) createOrUpdateClusterResources(ctx context.Context, t
 		} else {
 			pvcSecret := v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: PvcSecretName, Namespace: nsName}}
 			pvcSecOpRes, err := ctrl.CreateOrUpdate(ctx, r.Client, &pvcSecret, func() error {
-				share := fmt.Sprintf("%s.rook-ceph.svc.cluster.local:%s", pv.Spec.CSI.VolumeAttributes["server"], pv.Spec.CSI.VolumeAttributes["share"])
-				r.updateTnPVCSecret(&pvcSecret, share)
+				nfsService := v1.Service{ObjectMeta: metav1.ObjectMeta{Name: pv.Spec.CSI.VolumeAttributes["server"], Namespace: RookCephNamespace}}
+				if err := r.Get(ctx, types.NamespacedName{Name: nfsService.Name, Namespace: nfsService.Namespace}, &nfsService); err != nil {
+					return err
+				}
+
+				r.updateTnPVCSecret(&pvcSecret, nfsService.Spec.ClusterIP, pv.Spec.CSI.VolumeAttributes["share"])
 				return ctrl.SetControllerReference(tn, &pvcSecret, r.Scheme)
 			})
 			if err != nil {
@@ -629,12 +636,13 @@ func (r *TenantReconciler) updateTnNcSecret(sec *v1.Secret, username, password s
 	sec.Data["password"] = []byte(password)
 }
 
-func (r *TenantReconciler) updateTnPVCSecret(sec *v1.Secret, share string) {
+func (r *TenantReconciler) updateTnPVCSecret(sec *v1.Secret, server string, path string) {
 	sec.Labels = r.updateTnResourceCommonLabels(sec.Labels)
 
 	sec.Type = v1.SecretTypeOpaque
 	sec.Data = make(map[string][]byte, 1)
-	sec.Data[SecretShareKey] = []byte(share)
+	sec.Data[SecretServerKey] = []byte(server)
+	sec.Data[SecretPathKey] = []byte(path)
 }
 
 func updateTnLabels(tn *crownlabsv1alpha2.Tenant, tenantExistingWorkspaces []crownlabsv1alpha2.TenantWorkspaceEntry) error {
